@@ -340,15 +340,19 @@ impl DebugAdapter for CodeLldbDebugAdapter {
         if command.is_none() {
             delegate.output_to_console(format!("Checking latest version of {}...", self.name()));
             let adapter_path = paths::debug_adapters_dir().join(&Self::ADAPTER_NAME);
-            let version_path = match self.fetch_latest_adapter_version(delegate).await {
+            let downloaded = match self.fetch_latest_adapter_version(delegate).await {
+                Ok(version) => adapters::download_adapter_from_github(
+                    self.name(),
+                    version.clone(),
+                    adapters::DownloadedFileType::Vsix,
+                    delegate.as_ref(),
+                )
+                .await
+                .map(|_| version),
+                Err(error) => Err(error),
+            };
+            let version_path = match downloaded {
                 Ok(version) => {
-                    adapters::download_adapter_from_github(
-                        self.name(),
-                        version.clone(),
-                        adapters::DownloadedFileType::Vsix,
-                        delegate.as_ref(),
-                    )
-                    .await?;
                     let version_path =
                         adapter_path.join(format!("{}_{}", Self::ADAPTER_NAME, version.tag_name));
                     remove_matching(&adapter_path, |entry| entry != version_path).await;

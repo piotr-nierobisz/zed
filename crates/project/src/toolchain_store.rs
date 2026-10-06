@@ -26,6 +26,7 @@ use util::{ResultExt as _, rel_path::RelPath};
 use crate::{
     ProjectEnvironment, ProjectPath,
     manifest_tree::{ManifestQueryDelegate, ManifestTree},
+    trusted_worktrees::TrustedWorktrees,
     worktree_store::WorktreeStore,
 };
 
@@ -502,6 +503,15 @@ impl LocalToolchainStore {
         language_name: LanguageName,
         cx: &mut Context<Self>,
     ) -> Task<Option<(ToolchainList, Arc<RelPath>)>> {
+        let worktree_trusted =
+            TrustedWorktrees::try_get_global(cx).is_none_or(|trusted_worktrees| {
+                trusted_worktrees.update(cx, |trusted_worktrees, cx| {
+                    trusted_worktrees.can_trust(&self.worktree_store, path.worktree_id, cx)
+                })
+            });
+        if !worktree_trusted {
+            return Task::ready(None);
+        }
         let registry = self.languages.clone();
 
         let manifest_tree = self.manifest_tree.downgrade();

@@ -511,13 +511,20 @@ impl DebugAdapter for JsDebugAdapter {
         if self.checked.set(()).is_ok() {
             delegate.output_to_console(format!("Checking latest version of {}...", self.name()));
             if let Some(version) = self.fetch_latest_adapter_version(delegate).await.log_err() {
-                adapters::download_adapter_from_github(
+                if let Err(error) = adapters::download_adapter_from_github(
                     self.name(),
                     version,
                     adapters::DownloadedFileType::GzipTar,
                     delegate.as_ref(),
                 )
-                .await?;
+                .await
+                {
+                    log::warn!("Failed to download {}: {error:#}", self.name());
+                    delegate.output_to_console(format!(
+                        "Failed to download {}: {error:#}",
+                        self.name()
+                    ));
+                }
             } else {
                 delegate.output_to_console(format!("{} debug adapter is up to date", self.name()));
             }

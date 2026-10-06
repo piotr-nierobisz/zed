@@ -24,6 +24,7 @@ use language::{
 use lsp::{LanguageServer, LanguageServerBinary, LanguageServerId, LanguageServerName};
 use node_runtime::{NodeRuntime, VersionStrategy};
 use parking_lot::Mutex;
+use project::binary_downloads::{self, BinaryDownload, DownloadGate};
 use project::project_settings::ProjectSettings;
 use project::{DisableAiSettings, Project};
 use request::DidChangeStatus;
@@ -566,7 +567,8 @@ impl Copilot {
         cx: &mut AsyncApp,
     ) {
         let start_language_server = async {
-            let server_path = get_copilot_lsp(fs, node_runtime).await?;
+            let download_gate = cx.update(|cx| binary_downloads::download_gate(cx));
+            let server_path = get_copilot_lsp(fs, node_runtime, download_gate).await?;
 
             let arguments: Vec<OsString> = vec!["--stdio".into()];
             let binary = LanguageServerBinary {
@@ -1336,32 +1338,46 @@ async fn clear_copilot_dir() {
     remove_matching(paths::copilot_dir(), |_| true).await
 }
 
-async fn get_copilot_lsp(fs: Arc<dyn Fs>, node_runtime: NodeRuntime) -> anyhow::Result<PathBuf> {
+async fn get_copilot_lsp(
+    fs: Arc<dyn Fs>,
+    node_runtime: NodeRuntime,
+    download_gate: DownloadGate,
+) -> anyhow::Result<PathBuf> {
     const PACKAGE_NAME: &str = "@github/copilot-language-server";
+
     const SERVER_PATH: &str =
         "node_modules/@github/copilot-language-server/dist/language-server.js";
 
-    let latest_version = node_runtime
-        .npm_package_latest_version(PACKAGE_NAME)
-        .await?;
     let server_path = paths::copilot_dir().join(SERVER_PATH);
     let binary_path = copilot_lsp_native_binary_path()?;
 
     fs.create_dir(paths::copilot_dir()).await?;
 
-    let should_install = !fs.is_file(&binary_path).await
-        || node_runtime
-            .should_install_npm_package(
-                PACKAGE_NAME,
-                &server_path,
-                paths::copilot_dir(),
-                VersionStrategy::Latest(&latest_version),
-            )
-            .await;
-    if should_install {
-        node_runtime
-            .npm_install_latest_packages(paths::copilot_dir(), &[PACKAGE_NAME])
+    let binary_exists = fs.is_file(&binary_path).await;
+    let download_allowed = download_gate
+        .allowed(
+            BinaryDownload::new(binary_downloads::COPILOT),
+            binary_exists,
+        )
+        .await;
+    if download_allowed {
+        let latest_version = node_runtime
+            .npm_package_latest_version(PACKAGE_NAME)
             .await?;
+        let should_install = !binary_exists
+            || node_runtime
+                .should_install_npm_package(
+                    PACKAGE_NAME,
+                    &server_path,
+                    paths::copilot_dir(),
+                    VersionStrategy::Latest(&latest_version),
+                )
+                .await;
+        if should_install {
+            node_runtime
+                .npm_install_latest_packages(paths::copilot_dir(), &[PACKAGE_NAME])
+                .await?;
+        }
     }
 
     if fs.is_file(&binary_path).await {

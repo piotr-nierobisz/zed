@@ -6,7 +6,11 @@ use gpui::{
     Subscription, Task, WeakEntity, Window, div,
 };
 use language::{Buffer, BufferEvent, LanguageName, Toolchain, ToolchainScope};
-use project::{Project, ProjectPath, Toolchains, WorktreeId, toolchain_store::ToolchainStoreEvent};
+use project::{
+    Project, ProjectPath, Toolchains, WorktreeId,
+    toolchain_store::ToolchainStoreEvent,
+    trusted_worktrees::{TrustedWorktrees, TrustedWorktreesEvent},
+};
 use ui::{Button, ButtonCommon, Clickable, LabelSize, SharedString, Tooltip};
 use util::{maybe, rel_path::RelPath};
 use workspace::{HideStatusItem, StatusItemView, Workspace, item::ItemHandle};
@@ -39,6 +43,19 @@ impl ActiveToolchain {
                         .flatten();
                     if let Some(editor) = editor {
                         this.update_lister(editor, window, cx);
+                    }
+                },
+            )
+            .detach();
+        }
+        if let Some(trusted_worktrees) = TrustedWorktrees::try_get_global(cx) {
+            cx.subscribe_in(
+                &trusted_worktrees,
+                window,
+                |active_toolchain, _, event: &TrustedWorktreesEvent, window, cx| {
+                    if let TrustedWorktreesEvent::Trusted(..) = event {
+                        active_toolchain._update_toolchain_task =
+                            Self::spawn_tracker_task(window, cx);
                     }
                 },
             )

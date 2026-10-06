@@ -11,6 +11,7 @@ use language::{
 };
 use project::{
     LanguageServerProgress, LspStoreEvent, ProgressToken, Project, ProjectEnvironmentEvent,
+    binary_downloads::{self, BinaryDownloads},
     git_store::{GitStoreEvent, Repository},
 };
 use smallvec::SmallVec;
@@ -205,6 +206,11 @@ impl ActivityIndicator {
                 },
             )
             .detach();
+
+            if let Some(binary_downloads) = BinaryDownloads::try_get_global(cx) {
+                cx.observe(&binary_downloads, |_, _, cx| cx.notify())
+                    .detach();
+            }
 
             cx.subscribe(
                 &project.read(cx).git_store().clone(),
@@ -602,6 +608,24 @@ impl ActivityIndicator {
 
         // Show any formatting failure
         if let Some(failure) = self.project.read(cx).last_formatting_failure(cx) {
+            let prettier_blocked = binary_downloads::pending_downloads(self.project.read(cx), cx)
+                .iter()
+                .any(|download| download.tool == binary_downloads::PRETTIER);
+            if prettier_blocked {
+                return Some(Content {
+                    icon: ActivityIcon::Icon(IconName::CloudDownload),
+                    message:
+                        "Formatting is waiting for Prettier download approval. Click to review."
+                            .to_string(),
+                    on_click: Some(Arc::new(|indicator, window, cx| {
+                        indicator.project.update(cx, |project, cx| {
+                            project.reset_last_formatting_failure(cx);
+                        });
+                        window.dispatch_action(Box::new(workspace::ToggleBinaryDownloads), cx);
+                    })),
+                    tooltip_message: None,
+                });
+            }
             return Some(Content {
                 icon: ActivityIcon::Icon(IconName::Warning),
                 message: format!("Formatting failed: {failure}. Click to see logs."),

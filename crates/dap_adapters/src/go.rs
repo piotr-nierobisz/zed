@@ -4,7 +4,7 @@ use dap::{
     StartDebuggingRequestArguments,
     adapters::{
         DebugTaskDefinition, DownloadedFileType, TcpArguments, download_adapter_from_github,
-        latest_github_release,
+        ensure_download_allowed, latest_github_release,
     },
 };
 use fs::Fs;
@@ -74,7 +74,7 @@ impl GoDebugAdapter {
 
         let adapter_dir = paths::debug_adapters_dir().join("delve-shim-dap");
 
-        match Self::fetch_latest_adapter_version(delegate).await {
+        let downloaded = match Self::fetch_latest_adapter_version(delegate).await {
             Ok(asset) => {
                 let ty = if consts::OS == "windows" {
                     DownloadedFileType::Zip
@@ -87,8 +87,13 @@ impl GoDebugAdapter {
                     ty,
                     delegate.as_ref(),
                 )
-                .await?;
-
+                .await
+                .map(|_| asset)
+            }
+            Err(error) => Err(error),
+        };
+        match downloaded {
+            Ok(asset) => {
                 let path = adapter_dir
                     .join(format!("delve-shim-dap_{}", asset.tag_name))
                     .join(format!("delve-shim-dap{}", consts::EXE_SUFFIX));
@@ -461,6 +466,7 @@ impl DebugAdapter for GoDebugAdapter {
                 .await
                 .context("Go not found in path. Please install Go first, then Dlv will be installed automatically.")?;
 
+            ensure_download_allowed(&self.name(), false, delegate.as_ref()).await?;
             let adapter_path = paths::debug_adapters_dir().join(&Self::ADAPTER_NAME);
 
             let install_output = util::command::new_command(&go)

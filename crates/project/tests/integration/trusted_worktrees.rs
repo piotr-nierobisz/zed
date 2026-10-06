@@ -8,7 +8,9 @@ use util::path;
 
 use crate::{FakeFs, Project};
 
-use project::{trusted_worktrees::*, worktree_store::WorktreeStore};
+use language::LanguageName;
+use project::{ProjectPath, WorktreeId, trusted_worktrees::*, worktree_store::WorktreeStore};
+use util::rel_path::rel_path;
 
 fn init_test(cx: &mut TestAppContext) {
     cx.update(|cx| {
@@ -954,4 +956,59 @@ async fn test_invisible_worktree_stores_do_not_affect_trust(cx: &mut TestAppCont
         }),
         "only visible worktrees should be restricted"
     );
+}
+
+#[gpui::test]
+async fn test_toolchain_discovery_requires_trust(cx: &mut TestAppContext) {
+    init_test(cx);
+
+    let fs = FakeFs::new(cx.executor());
+    fs.insert_tree(path!("/root"), json!({ ".venv": {}, "main.py": "" }))
+        .await;
+    let project = Project::test(fs.clone(), [path!("/root").as_ref()], cx).await;
+    project.read_with(cx, |project, _| {
+        project.languages().add(crate::python_lang(fs.clone()))
+    });
+    let worktree_store = project.read_with(cx, |project, _| project.worktree_store());
+    let worktree_id = worktree_store.read_with(cx, |store, cx| {
+        store.worktrees().next().unwrap().read(cx).id()
+    });
+    let trusted_worktrees = init_trust_global(worktree_store.clone(), cx);
+
+    assert_eq!(
+        discovered_toolchain_count(&project, worktree_id, cx).await,
+        None
+    );
+
+    trusted_worktrees.update(cx, |store, cx| {
+        store.trust(
+            &worktree_store,
+            HashSet::from_iter([PathTrust::Worktree(worktree_id)]),
+            cx,
+        );
+    });
+    assert_eq!(
+        discovered_toolchain_count(&project, worktree_id, cx).await,
+        Some(1)
+    );
+}
+
+async fn discovered_toolchain_count(
+    project: &Entity<Project>,
+    worktree_id: WorktreeId,
+    cx: &mut TestAppContext,
+) -> Option<usize> {
+    let toolchains = project
+        .read_with(cx, |project, cx| {
+            project.available_toolchains(
+                ProjectPath {
+                    worktree_id,
+                    path: rel_path("main.py").into(),
+                },
+                LanguageName::new_static("Python"),
+                cx,
+            )
+        })
+        .await?;
+    Some(toolchains.toolchains.toolchains().len())
 }

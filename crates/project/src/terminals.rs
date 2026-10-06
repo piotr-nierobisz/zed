@@ -4,7 +4,7 @@ use gpui::{App, AppContext as _, Context, Entity, Task, WeakEntity};
 
 use futures::{FutureExt, future::Shared};
 use itertools::Itertools as _;
-use language::LanguageName;
+use language::{LanguageName, Toolchain};
 use remote::{Interactive, RemoteClient};
 use rpc::proto;
 use settings::{Settings, SettingsLocation};
@@ -23,7 +23,7 @@ use util::{
     command::new_std_command, get_default_system_shell, get_system_shell, maybe, rel_path::RelPath,
 };
 
-use crate::{Project, ProjectPath};
+use crate::{Project, ProjectPath, WorktreeId, trusted_worktrees::TrustedWorktrees};
 
 pub struct Terminals {
     pub(crate) local_handles: Vec<WeakEntity<terminal::Terminal>>,
@@ -117,20 +117,7 @@ impl Project {
         // for worktree A would leak into a terminal opened in worktree B and
         // inject (e.g.) `conda activate base` into a shell that has no
         // business with conda.
-        let project_path_contexts: Vec<ProjectPath> = path
-            .as_ref()
-            .and_then(|p| self.find_worktree(p, cx))
-            .map(|(worktree, relative_path)| ProjectPath {
-                worktree_id: worktree.read(cx).id(),
-                path: relative_path,
-            })
-            .into_iter()
-            .collect();
-        let toolchains = project_path_contexts
-            .into_iter()
-            .filter(|_| detect_venv)
-            .map(|p| self.active_toolchain(p, LanguageName::new_static("Python"), cx))
-            .collect::<Vec<_>>();
+        let toolchains = self.terminal_python_toolchain(path.as_deref(), detect_venv, cx);
         let lang_registry = self.languages.clone();
         cx.spawn(async move |project, cx| {
             let mut env = env_task.await.unwrap_or_default();
@@ -335,20 +322,7 @@ impl Project {
         // See create_terminal_task: scope the toolchain lookup to the
         // worktree the terminal is opened in, not the active editor's
         // worktree or other visible worktrees.
-        let project_path_contexts: Vec<ProjectPath> = path
-            .as_ref()
-            .and_then(|p| self.find_worktree(p, cx))
-            .map(|(worktree, relative_path)| ProjectPath {
-                worktree_id: worktree.read(cx).id(),
-                path: relative_path,
-            })
-            .into_iter()
-            .collect();
-        let toolchains = project_path_contexts
-            .into_iter()
-            .filter(|_| detect_venv)
-            .map(|p| self.active_toolchain(p, LanguageName::new_static("Python"), cx))
-            .collect::<Vec<_>>();
+        let toolchains = self.terminal_python_toolchain(path.as_deref(), detect_venv, cx);
         let remote_client = if force_local {
             None
         } else {
@@ -639,6 +613,40 @@ impl Project {
             Task::ready(None).shared()
         }
     }
+
+    fn terminal_python_toolchain(
+        &self,
+        path: Option<&Path>,
+        detect_venv: bool,
+        cx: &mut App,
+    ) -> Vec<Task<Option<Toolchain>>> {
+        let Some((worktree, relative_path)) = path
+            .filter(|_| detect_venv)
+            .and_then(|path| self.find_worktree(path, cx))
+        else {
+            return Vec::new();
+        };
+        let worktree_id = worktree.read(cx).id();
+        if !self.worktree_trusted(worktree_id, cx) {
+            return Vec::new();
+        }
+        vec![self.active_toolchain(
+            ProjectPath {
+                worktree_id,
+                path: relative_path,
+            },
+            LanguageName::new_static("Python"),
+            cx,
+        )]
+    }
+
+    fn worktree_trusted(&self, worktree_id: WorktreeId, cx: &mut App) -> bool {
+        TrustedWorktrees::try_get_global(cx).is_none_or(|trusted_worktrees| {
+            trusted_worktrees.update(cx, |trusted_worktrees, cx| {
+                trusted_worktrees.can_trust(&self.worktree_store, worktree_id, cx)
+            })
+        })
+    }
 }
 
 fn create_remote_shell(
@@ -747,7 +755,76 @@ fn quote_cmd_command_arg_for_outer_shell(arg: &str, shell_kind: ShellKind) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::trusted_worktrees::{self, PathTrust};
+    use collections::HashSet;
+    use fs::FakeFs;
+    use gpui::{SharedString, TestAppContext};
     use pretty_assertions::assert_eq;
+    use serde_json::json;
+    use settings::SettingsStore;
+    use util::path;
+
+    #[gpui::test]
+    async fn test_terminal_toolchain_activation_requires_worktree_trust(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            let settings_store = SettingsStore::test(cx);
+            cx.set_global(settings_store);
+            trusted_worktrees::init(HashMap::default(), cx);
+        });
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(path!("/root"), json!({ "main.py": "" }))
+            .await;
+        let project = Project::test(fs, [path!("/root").as_ref()], cx).await;
+        let (worktree_store, worktree_id) = project.update(cx, |project, cx| {
+            let worktree_store = project.worktree_store();
+            trusted_worktrees::track_worktree_trust(worktree_store.clone(), None, None, None, cx);
+            let worktree_id = project.worktrees(cx).next().unwrap().read(cx).id();
+            (worktree_store, worktree_id)
+        });
+        let toolchain = Toolchain {
+            name: SharedString::new_static("pyenv 3.12"),
+            path: SharedString::new_static(path!("/pyenv/versions/3.12/bin/python")),
+            language_name: LanguageName::new_static("Python"),
+            as_json: serde_json::Value::Null,
+        };
+        project
+            .update(cx, |project, cx| {
+                project.activate_toolchain(
+                    ProjectPath {
+                        worktree_id,
+                        path: RelPath::empty_arc(),
+                    },
+                    toolchain.clone(),
+                    cx,
+                )
+            })
+            .await;
+
+        assert_eq!(
+            terminal_python_toolchain_names(&project, true, cx).await,
+            Vec::<SharedString>::new()
+        );
+
+        cx.update(|cx| {
+            TrustedWorktrees::try_get_global(cx)
+                .unwrap()
+                .update(cx, |trusted_worktrees, cx| {
+                    trusted_worktrees.trust(
+                        &worktree_store,
+                        HashSet::from_iter([PathTrust::Worktree(worktree_id)]),
+                        cx,
+                    );
+                });
+        });
+        assert_eq!(
+            terminal_python_toolchain_names(&project, false, cx).await,
+            Vec::<SharedString>::new()
+        );
+        assert_eq!(
+            terminal_python_toolchain_names(&project, true, cx).await,
+            vec![toolchain.name]
+        );
+    }
 
     fn prepared_cmd_task(command_arg: &str) -> SpawnInTerminal {
         SpawnInTerminal {
@@ -825,5 +902,21 @@ mod tests {
             format_task_for_activation(&task, ShellKind::PowerShell, "powershell.exe", true),
             "&cargo test 'some test'"
         );
+    }
+
+    async fn terminal_python_toolchain_names(
+        project: &Entity<Project>,
+        detect_venv: bool,
+        cx: &mut TestAppContext,
+    ) -> Vec<SharedString> {
+        let toolchains = project.update(cx, |project, cx| {
+            project.terminal_python_toolchain(Some(Path::new(path!("/root"))), detect_venv, cx)
+        });
+        futures::future::join_all(toolchains)
+            .await
+            .into_iter()
+            .flatten()
+            .map(|toolchain| toolchain.name)
+            .collect()
     }
 }

@@ -100,5 +100,9 @@ mod test_mocks {
         fn is_headless(&self) -> bool {
             false
         }
+
+        fn download_gate(&self) -> adapters::DownloadGate {
+            adapters::DownloadGate::deny_all()
+        }
     }
 }
