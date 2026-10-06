@@ -38,6 +38,18 @@ pub trait DiffHunkRenderer {
     fn render_hunk_as_staged(&self, status: &DiffHunkStatus, _cx: &App) -> bool {
         !status.has_secondary_hunk()
     }
+
+    /// Render controls for every visible hunk, not only the hovered one or
+    /// the one under the cursor.
+    fn show_controls_for_all_hunks(&self) -> bool {
+        false
+    }
+
+    /// Place the controls just below the hunk's last line instead of on its
+    /// first line.
+    fn place_controls_below_hunk(&self) -> bool {
+        false
+    }
 }
 
 pub struct DefaultDiffHunkRenderer;

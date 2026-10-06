@@ -1769,6 +1769,9 @@ impl Buffer {
             .set((self.saved_version.clone(), false));
         self.text.set_line_ending(line_ending);
         self.saved_mtime = mtime;
+        // Like saving, reloading can clear the unsaved state without editing
+        // any text, so multibuffers have to recompute it too.
+        self.was_changed();
         cx.emit(BufferEvent::Reloaded);
         cx.notify();
     }

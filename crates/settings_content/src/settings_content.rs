@@ -316,6 +316,9 @@ pub struct SettingsContent {
     /// Settings for the which-key popup.
     pub which_key: Option<WhichKeySettingsContent>,
 
+    /// Settings for the Claude Code CLI integration.
+    pub claude_code: Option<ClaudeCodeSettingsContent>,
+
     /// Settings related to Vim mode in Zed.
     pub vim: Option<VimSettingsContent>,
 
@@ -408,7 +411,7 @@ fallible_options::flattened_deserialize!(SettingsContent {
         global_lsp_settings, image_viewer, markdown_preview, repl, helix_mode, hide_mouse,
         journal, log, line_indicator_format, language_models, outline_panel, project_panel,
         node, proxy, reduce_motion, server_url, credentials_url, session, telemetry, terminal,
-        title_bar, vim_mode, calls, which_key, vim, modeline_lines, feature_flags,
+        title_bar, vim_mode, calls, which_key, claude_code, vim, modeline_lines, feature_flags,
         instrumentation,
     },
     defaults: {},
@@ -1477,6 +1480,18 @@ pub struct WhichKeySettingsContent {
     ///
     /// Default: 1000
     pub delay_ms: Option<u64>,
+}
+
+/// Settings for the Claude Code CLI integration.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
+pub struct ClaudeCodeSettingsContent {
+    /// Whether Zed runs the IDE server that the `claude` CLI connects to with
+    /// `/ide`. While connected, Claude's proposed edits appear inline in the
+    /// editor with Accept and Reject controls on every change, and Claude sees
+    /// your current selection and diagnostics.
+    ///
+    /// Default: true
+    pub enabled: Option<bool>,
 }
 
 // An ExtendingVec in the settings can only accumulate new values.

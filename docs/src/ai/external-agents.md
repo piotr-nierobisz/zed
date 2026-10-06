@@ -44,6 +44,33 @@ Install Claude Agent from the [ACP Registry](#registry), then start a Claude Age
 
 To choose your billing method, open a Claude Agent thread, run `/login`, and authenticate with an API key or with Claude Code where supported. Claude-specific files such as `CLAUDE.md` may be read by Claude Agent directly.
 
+### Claude Code in a Terminal {#claude-code-cli}
+
+You can also keep the conversation in a terminal and use Zed as Claude Code's IDE, the way the VS Code and JetBrains extensions work. Zed runs a local server that the `claude` CLI connects to:
+
+- A `claude` started in Zed's terminal connects automatically. The Claude icon in the title bar ({#action claude_code::NewTerminal}) starts one for you: it opens a terminal in a pane to the right of the active one and runs `claude` in it. Terminals opened this way share that pane.
+- In any other terminal, run `/ide` in `claude` and pick Zed. The session's working directory has to be inside one of the projects open in Zed.
+
+While connected, every file edit Claude asks permission for opens in the editor with the proposed changes applied inline, and Accept and Reject controls under each change. Proposals all open in one pane, split off to the right of the active pane the first time, so the pane you're working in stays as it was. Claude waits until every change has been decided:
+
+- Accepted changes are saved. Rejected ones are put back as they were.
+- Nothing is written to disk while the review is open, and autosave leaves the file alone.
+- You can edit the proposed code before accepting it, and the file is saved as you left it.
+- Answering the permission prompt in the terminal instead, or closing the file, withdraws the proposal from the editor.
+
+The keyboard works as in the Agent Panel's review:
+
+| Action                       | Shortcut                      |
+| ---------------------------- | ----------------------------- |
+| Accept change under cursor   | {#kb agent::Keep}             |
+| Reject change under cursor   | {#kb agent::Reject}           |
+| Accept all changes in file   | {#kb agent::KeepAll}          |
+| Reject all changes in file   | {#kb agent::RejectAll}        |
+
+Claude also sees the file and selection you have focused in Zed, and the language server diagnostics for the files it edits.
+
+Edits made while Claude auto-approves them (accept-edits mode) are written directly and don't open a review. To turn the server off, set `"claude_code": { "enabled": false }` in your settings.
+
 ## Codex {#codex-cli}
 
 Use Codex when you want Codex running as an ACP-integrated External Agent in Zed.

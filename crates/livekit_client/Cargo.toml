@@ -22,7 +22,7 @@ test-support = ["collections/test-support", "gpui/test-support", "livekit_api/te
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-audio.workspace = true
+audio = { workspace = true, features = ["echo-cancellation"] }
 collections.workspace = true
 cpal.workspace = true
 futures.workspace = true

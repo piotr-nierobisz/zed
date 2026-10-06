@@ -951,6 +951,10 @@ impl Item for Editor {
         }
     }
 
+    fn suppresses_autosave(&self, _: &App) -> bool {
+        self.addons.values().any(|addon| addon.suppresses_autosave())
+    }
+
     fn save(
         &mut self,
         options: SaveOptions,

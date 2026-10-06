@@ -4859,6 +4859,8 @@ impl EditorElement {
         let diff_hunk_renderer = editor.read(cx).diff_hunk_renderer();
         let hovered_diff_hunk_row = editor.read(cx).hovered_diff_hunk_row;
         let sticky_top = text_hitbox.bounds.top() + sticky_header_height;
+        let show_controls_for_all_hunks = diff_hunk_renderer.show_controls_for_all_hunks();
+        let place_controls_below_hunk = diff_hunk_renderer.place_controls_below_hunk();
 
         let mut controls = vec![];
         let mut control_bounds = vec![];
@@ -4907,23 +4909,28 @@ impl EditorElement {
                     continue;
                 }
 
-                if active_rows
-                    .iter()
-                    .any(|row| row.is_some_and(|row| display_row_range.contains(&row)))
+                if show_controls_for_all_hunks
+                    || active_rows
+                        .iter()
+                        .any(|row| row.is_some_and(|row| display_row_range.contains(&row)))
                 {
                     let hunk_start_y: Pixels = (display_row_range.start.as_f64()
                         * ScrollPixelOffset::from(line_height)
                         + ScrollPixelOffset::from(text_hitbox.bounds.top())
                         - scroll_pixel_position.y)
                         .into();
+                    let hunk_end_y: Pixels = hunk_start_y
+                        + (display_row_range.len() as f64 * ScrollPixelOffset::from(line_height))
+                            .into();
 
-                    let y: Pixels = if hunk_start_y >= sticky_top {
+                    let y: Pixels = if place_controls_below_hunk {
+                        // Keep the controls on screen while any part of the hunk is.
+                        hunk_end_y
+                            .min(text_hitbox.bounds.bottom() - line_height)
+                            .max(sticky_top)
+                    } else if hunk_start_y >= sticky_top {
                         hunk_start_y
                     } else {
-                        let hunk_end_y: Pixels = hunk_start_y
-                            + (display_row_range.len() as f64
-                                * ScrollPixelOffset::from(line_height))
-                            .into();
                         let max_y = hunk_end_y - line_height;
                         sticky_top.min(max_y)
                     };

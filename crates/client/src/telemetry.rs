@@ -89,11 +89,10 @@ static ZED_CLIENT_CHECKSUM_SEED: LazyLock<Option<Vec<u8>>> = LazyLock::new(|| {
         })
 });
 
-pub static MINIDUMP_ENDPOINT: LazyLock<Option<String>> = LazyLock::new(|| {
-    option_env!("ZED_MINIDUMP_ENDPOINT")
-        .map(str::to_string)
-        .or_else(|| env::var("ZED_MINIDUMP_ENDPOINT").ok())
-});
+/// Only settable when building, so nothing in the environment Zed runs in
+/// can start uploading crash reports.
+pub static MINIDUMP_ENDPOINT: LazyLock<Option<String>> =
+    LazyLock::new(|| option_env!("ZED_MINIDUMP_ENDPOINT").map(str::to_string));
 
 pub fn should_install_crash_handler(channel: ReleaseChannel) -> bool {
     matches!(
@@ -622,8 +621,15 @@ impl Telemetry {
         self.state.lock().metrics_id.clone()
     }
 
+    /// Identifies this machine to zed.dev, so it's only shared while metrics
+    /// are enabled.
     pub fn system_id(self: &Arc<Self>) -> Option<Arc<str>> {
-        self.state.lock().system_id.clone()
+        let state = self.state.lock();
+        if state.settings.metrics {
+            state.system_id.clone()
+        } else {
+            None
+        }
     }
 
     pub fn installation_id(self: &Arc<Self>) -> Option<Arc<str>> {
@@ -1060,9 +1066,18 @@ mod tests {
     // Update FakeHTTPClient to keep track of the number of requests and assert on it
 
     fn init_test(cx: &mut TestAppContext) {
+        use gpui::UpdateGlobal as _;
+
         cx.update(|cx| {
             let settings_store = SettingsStore::test(cx);
             cx.set_global(settings_store);
+            // Metrics are off by default in this build; these tests are about
+            // sending them.
+            SettingsStore::update_global(cx, |store, cx| {
+                store.update_user_settings(cx, |settings| {
+                    settings.telemetry.get_or_insert_default().metrics = Some(true);
+                });
+            });
         });
     }
 

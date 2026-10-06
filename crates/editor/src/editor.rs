@@ -808,6 +808,11 @@ pub trait Addon: 'static {
         None
     }
 
+    /// Whether autosave should skip the editor while this addon is registered.
+    fn suppresses_autosave(&self) -> bool {
+        false
+    }
+
     fn to_any(&self) -> &dyn std::any::Any;
 
     fn to_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {

@@ -1,5 +1,7 @@
 use anthropic::ANTHROPIC_API_URL;
 use anyhow::{Context as _, anyhow};
+use client::TelemetrySettings;
+use settings::Settings as _;
 use gpui::BackgroundExecutor;
 use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest};
 use language_model::{ANTHROPIC_PROVIDER_ID, LanguageModel};
@@ -66,6 +68,9 @@ pub struct AnthropicEventReporter {
     executor: BackgroundExecutor,
     api_key: Option<String>,
     is_anthropic: bool,
+    /// Usage reports are metrics like any other, so they follow the
+    /// `telemetry.metrics` setting.
+    metrics_enabled: bool,
 }
 
 impl AnthropicEventReporter {
@@ -75,11 +80,12 @@ impl AnthropicEventReporter {
             executor: cx.background_executor().clone(),
             api_key: model.api_key(cx),
             is_anthropic: model.provider_id() == ANTHROPIC_PROVIDER_ID,
+            metrics_enabled: TelemetrySettings::get_global(cx).metrics,
         }
     }
 
     pub fn report(&self, event: AnthropicEventData) {
-        if !self.is_anthropic {
+        if !self.is_anthropic || !self.metrics_enabled {
             return;
         }
         let Some(api_key) = self.api_key.clone() else {

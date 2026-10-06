@@ -571,6 +571,18 @@ pub mod settings_profile_selector {
     pub struct Toggle;
 }
 
+pub mod claude_code {
+    use gpui::actions;
+
+    actions!(
+        claude_code,
+        [
+            /// Opens a terminal in a pane beside the active one and runs the `claude` CLI in it.
+            NewTerminal
+        ]
+    );
+}
+
 pub mod agent {
     use gpui::{Action, SharedString, actions};
     use schemars::JsonSchema;

@@ -1673,10 +1673,11 @@
   "word_diff_enabled": true,
   // Control what info is collected by Zed.
   "telemetry": {
-    // Send debug info like crash reports.
-    "diagnostics": true,
+    // Send debug info like crash reports. Off in this build unless turned on.
+    "diagnostics": false,
     // Send anonymized usage data like what languages you're using Zed with.
-    "metrics": true,
+    // Off in this build unless turned on.
+    "metrics": false,
     // Allow sending requests to Anthropic models that cannot be offered with
     // Zero Data Retention
     "anthropic_retention": false,
@@ -2832,6 +2833,14 @@
     "enabled": false,
     // Delay in milliseconds before showing the which-key popup.
     "delay_ms": 1000,
+  },
+  // Claude Code CLI integration
+  "claude_code": {
+    // Whether Zed runs the IDE server that the `claude` CLI connects to with
+    // `/ide`. While connected, Claude's proposed edits appear inline in the
+    // editor with Accept and Reject controls on every change, and Claude sees
+    // your current selection and diagnostics.
+    "enabled": true,
   },
   // The server to connect to. If the environment variable
   // ZED_SERVER_URL is set, it will override this setting.

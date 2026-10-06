@@ -12,6 +12,10 @@ workspace = true
 path = "src/audio.rs"
 doctest = false
 
+[features]
+# Cancels echo in microphone input, which only calls use. Pulls in WebRTC.
+echo-cancellation = ["dep:libwebrtc"]
+
 [dependencies]
 anyhow.workspace = true
 collections.workspace = true
@@ -26,4 +30,4 @@ thiserror.workspace = true
 util.workspace = true
 
 [target.'cfg(not(any(all(target_os = "windows", target_env = "gnu"), target_os = "freebsd")))'.dependencies]
-libwebrtc.workspace = true
+libwebrtc = { workspace = true, optional = true }

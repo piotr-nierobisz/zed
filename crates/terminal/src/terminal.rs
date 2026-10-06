@@ -93,6 +93,14 @@ impl HeadlessTerminal {
     }
 }
 
+/// Environment variables other subsystems ask to have set in every local
+/// terminal, e.g. so a CLI started there can find a server Zed is running.
+/// Read when a terminal is spawned, so changes apply to new terminals only.
+#[derive(Clone, Default)]
+pub struct TerminalExtraEnv(pub HashMap<String, String>);
+
+impl gpui::Global for TerminalExtraEnv {}
+
 #[derive(Clone, Copy, Debug)]
 enum Scroll {
     Delta(i32),
@@ -1105,6 +1113,13 @@ impl TerminalBuilder {
         // allocation / acquiring a controlling terminal fails with `ENOTTY`.
         // When set, run the command as a plain subprocess instead.
         let no_pty = HeadlessTerminal::is_enabled(cx);
+        // A remote shell cannot reach servers on this machine.
+        let extra_env = if is_remote_terminal {
+            None
+        } else {
+            cx.try_global::<TerminalExtraEnv>()
+                .map(|extra_env| extra_env.0.clone())
+        };
         #[cfg(not(windows))]
         let child_signal_mask = match current_child_signal_mask()
             .context("failed to capture terminal child signal mask")
@@ -1138,6 +1153,9 @@ impl TerminalBuilder {
             }
 
             insert_zed_terminal_env(&mut env, &version);
+            if let Some(extra_env) = extra_env {
+                env.extend(extra_env);
+            }
 
             #[derive(Default)]
             struct ShellParams {
